@@ -2,3 +2,4 @@
 captures/
 __pycache__/
 .~lock*
+data.xlsx

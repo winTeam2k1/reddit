@@ -1,36 +1,57 @@
 from __future__ import annotations
 
 import base64
+import json
 import math
 import os
 import re
 import shutil
 import struct
 import tempfile
+import time
 import urllib.parse
 import zlib
+from dataclasses import dataclass
 from pathlib import Path
 
+from openpyxl import load_workbook
 
 VIEWPORT = {"width": 1600, "height": 1400}
 SLICE_HEIGHT = 4000
 OUTPUT_DIR = Path("captures")
+EXCEL_PATH = Path("data.xlsx")
+CONFIG_PATH = Path("postConfig.json")
+DELAY_BETWEEN_POSTS_SECONDS = 3.0
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 CHROME_USER_AGENT = (
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
 )
+EXPECTED_HEADERS = {
+    "stt": "stt",
+    "topic": "topic",
+    "name brand": "brand_name",
+    "link": "link",
+}
+
+
+@dataclass(frozen=True)
+class RedditJob:
+    row_number: int
+    stt: str
+    topic: str
+    brand_name: str
+    link: str
+
+
+@dataclass(frozen=True)
+class PostConfig:
+    start: int
+    end: int | None
 
 
 class RedditScreenshotError(RuntimeError):
     pass
-
-
-def prompt_reddit_url() -> str:
-    raw = input("Nhap link Reddit: ").strip()
-    if not raw:
-        raise RedditScreenshotError("Ban chua nhap link.")
-    return normalize_reddit_url(raw)
 
 
 def normalize_reddit_url(raw: str) -> str:
@@ -53,11 +74,14 @@ def normalize_reddit_url(raw: str) -> str:
     return urllib.parse.urlunparse(cleaned)
 
 
-def make_output_path(url: str) -> Path:
-    parsed = urllib.parse.urlparse(url)
-    parts = [segment for segment in parsed.path.split("/") if segment]
-    stem = parts[-1] if parts else "reddit_post"
+def sanitize_output_name(value: str) -> str:
+    stem = str(value).strip()
     stem = re.sub(r"[^A-Za-z0-9._-]+", "_", stem).strip("._-") or "reddit_post"
+    return stem
+
+
+def make_output_path(name: str) -> Path:
+    stem = sanitize_output_name(f"#{name}")
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     candidate = OUTPUT_DIR / f"{stem}.png"
     index = 2
@@ -65,6 +89,137 @@ def make_output_path(url: str) -> Path:
         candidate = OUTPUT_DIR / f"{stem}_{index}.png"
         index += 1
     return candidate
+
+
+def normalize_header(value: object) -> str:
+    if value is None:
+        return ""
+    return re.sub(r"\s+", " ", str(value).strip()).casefold()
+
+
+def select_input_sheet(workbook):
+    if "Sheet1" in workbook.sheetnames:
+        return workbook["Sheet1"]
+    return workbook[workbook.sheetnames[0]]
+
+
+def find_header_mapping(sheet) -> tuple[int, dict[str, int]]:
+    for row_index, row in enumerate(sheet.iter_rows(values_only=True), start=1):
+        candidate_map: dict[str, int] = {}
+        for column_index, value in enumerate(row, start=1):
+            header = normalize_header(value)
+            if header in EXPECTED_HEADERS:
+                candidate_map[EXPECTED_HEADERS[header]] = column_index
+
+        if len(candidate_map) == len(EXPECTED_HEADERS):
+            return row_index, candidate_map
+
+    raise RedditScreenshotError(
+        "Khong tim thay header STT, Topic, Name Brand, LINK trong sheet dau vao."
+    )
+
+
+def cell_to_text(value: object) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value).strip()
+
+
+def load_jobs_from_excel(path: Path) -> list[RedditJob]:
+    if not path.exists():
+        raise RedditScreenshotError(f"Khong tim thay file Excel: {path.resolve()}")
+
+    workbook = load_workbook(path, read_only=True, data_only=True)
+    try:
+        sheet = select_input_sheet(workbook)
+        header_row, column_map = find_header_mapping(sheet)
+
+        jobs: list[RedditJob] = []
+        for row_number, row in enumerate(
+            sheet.iter_rows(min_row=header_row + 1, values_only=True),
+            start=header_row + 1,
+        ):
+            stt = cell_to_text(row[column_map["stt"] - 1])
+            topic = cell_to_text(row[column_map["topic"] - 1])
+            brand_name = cell_to_text(row[column_map["brand_name"] - 1])
+            link = cell_to_text(row[column_map["link"] - 1])
+
+            if not any((stt, topic, brand_name, link)):
+                continue
+            if not stt or not link:
+                print(f"Bo qua dong {row_number}: thieu STT hoac LINK.")
+                continue
+
+            jobs.append(
+                RedditJob(
+                    row_number=row_number,
+                    stt=stt,
+                    topic=topic,
+                    brand_name=brand_name,
+                    link=normalize_reddit_url(link),
+                )
+            )
+    finally:
+        workbook.close()
+
+    if not jobs:
+        raise RedditScreenshotError("Khong co dong hop le nao trong data.xlsx.")
+    return jobs
+
+
+def parse_config_int(config: dict[str, object], key: str) -> int | None:
+    value = config.get(key)
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise RedditScreenshotError(f"Gia tri '{key}' trong {CONFIG_PATH} phai la so nguyen.")
+    if value < 1:
+        raise RedditScreenshotError(f"Gia tri '{key}' trong {CONFIG_PATH} phai >= 1.")
+    return value
+
+
+def load_post_config(path: Path) -> PostConfig:
+    if not path.exists():
+        raise RedditScreenshotError(f"Khong tim thay file config: {path.resolve()}")
+
+    try:
+        config = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise RedditScreenshotError(f"File {path} khong phai JSON hop le: {exc}") from exc
+
+    if not isinstance(config, dict):
+        raise RedditScreenshotError(f"File {path} phai la mot JSON object.")
+
+    start = parse_config_int(config, "start")
+    end = parse_config_int(config, "end")
+    if start is None:
+        start = 1
+    if end is not None and end < start:
+        raise RedditScreenshotError("Gia tri 'end' phai lon hon hoac bang 'start'.")
+
+    return PostConfig(start=start, end=end)
+
+
+def filter_jobs_by_config(jobs: list[RedditJob], config: PostConfig) -> list[RedditJob]:
+    first_row = jobs[0].row_number
+    last_row = jobs[-1].row_number
+    effective_end = last_row if config.end is None else min(config.end, last_row)
+
+    filtered = [
+        job for job in jobs if config.start <= job.row_number <= effective_end
+    ]
+    if not filtered:
+        raise RedditScreenshotError(
+            f"Khong co dong hop le nao trong khoang Excel row {config.start} den {effective_end}."
+        )
+
+    print(
+        f"Chay tu dong Excel {config.start} den {effective_end} "
+        f"(du lieu hop le tu {first_row} den {last_row})."
+    )
+    return filtered
 
 
 def find_browser_executable() -> str | None:
@@ -477,12 +632,39 @@ def take_reddit_screenshot(url: str, output_path: Path) -> Path:
     )
 
 
+def capture_jobs(jobs: list[RedditJob]) -> int:
+    failures = 0
+    total = len(jobs)
+
+    for index, job in enumerate(jobs, start=1):
+        try:
+            output_path = make_output_path(job.stt)
+            final_path = take_reddit_screenshot(job.link, output_path)
+            print(
+                f"[{index}/{total}] STT {job.stt} | Topic: {job.topic} | Brand: {job.brand_name}"
+            )
+            print(f"Da luu anh tai: {final_path.resolve()}")
+        except RedditScreenshotError as exc:
+            failures += 1
+            print(f"[{index}/{total}] STT {job.stt} - loi tai dong {job.row_number}: {exc}")
+
+        if index < total and DELAY_BETWEEN_POSTS_SECONDS > 0:
+            time.sleep(DELAY_BETWEEN_POSTS_SECONDS)
+
+    return failures
+
+
 def main() -> int:
     try:
-        url = prompt_reddit_url()
-        output_path = make_output_path(url)
-        final_path = take_reddit_screenshot(url, output_path)
-        print(f"Da luu anh tai: {final_path.resolve()}")
+        jobs = load_jobs_from_excel(EXCEL_PATH)
+        config = load_post_config(CONFIG_PATH)
+        jobs = filter_jobs_by_config(jobs, config)
+        print(f"Tim thay {len(jobs)} link hop le trong {EXCEL_PATH.resolve()}")
+        failures = capture_jobs(jobs)
+        if failures:
+            print(f"Hoan tat voi {failures} dong loi.")
+            return 1
+        print("Hoan tat tat ca anh.")
         return 0
     except KeyboardInterrupt:
         print("\nDa huy.")
