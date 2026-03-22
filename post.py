@@ -18,7 +18,7 @@ from openpyxl import load_workbook
 
 VIEWPORT = {"width": 1600, "height": 1400}
 SLICE_HEIGHT = 4000
-OUTPUT_DIR = Path("captures")
+OUTPUT_DIR = Path("posts")
 EXCEL_PATH = Path("data.xlsx")
 CONFIG_PATH = Path("postConfig.json")
 DELAY_BETWEEN_POSTS_SECONDS = 3.0
