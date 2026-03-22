@@ -3,3 +3,7 @@ captures/
 __pycache__/
 .~lock*
 data.xlsx
+dist/
+*.spec
+*.zip
+build/
