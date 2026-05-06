@@ -64,11 +64,11 @@ def normalize_reddit_url(raw: str) -> str:
     if not host:
         raise RedditScreenshotError("Link khong hop le.")
 
+    if host.endswith("reddit.com") and host not in {"www.reddit.com", "reddit.com"}:
+        host = "www.reddit.com"    
+
     if "reddit.com" not in host and host != "redd.it":
         raise RedditScreenshotError("Link phai thuoc reddit.com hoac redd.it.")
-
-    if host.endswith("reddit.com") and host not in {"www.reddit.com", "reddit.com"}:
-        host = "www.reddit.com"
 
     cleaned = parsed._replace(scheme="https", netloc=host, fragment="")
     return urllib.parse.urlunparse(cleaned)
