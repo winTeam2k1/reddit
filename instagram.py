@@ -203,14 +203,14 @@ def click_locator_if_visible(locator, timeout: int = 1500) -> bool:
 
 def close_modal_if_needed(page, capture_locator) -> bool:
     if not has_visible_modal(page):
-        log("Khong thay modal aria-modal=true role=dialog.")
+        # log("Khong thay modal aria-modal=true role=dialog.")
         return False
 
     if capture_target_is_inside_modal(page, capture_locator):
-        log("Target can chup nam ben trong modal, se giu modal de chup.")
+        # log("Target can chup nam ben trong modal, se giu modal de chup.")
         return False
 
-    log("Phat hien modal dang che noi dung, thu dong modal.")
+    # log("Phat hien modal dang che noi dung, thu dong modal.")
     close_target = page.locator(f"xpath={CLOSE_MODAL_XPATH}")
     if click_locator_if_visible(close_target):
         page.wait_for_timeout(600)
@@ -286,7 +286,7 @@ def take_instagram_screenshot(url: str, output_path: Path, *, headless: bool) ->
         )
 
         try:
-            log(f"Mo trang: {url}")
+            # log(f"Mo trang: {url}")
             page.goto(url, wait_until="domcontentloaded")
             try:
                 page.wait_for_load_state("networkidle", timeout=10_000)
@@ -299,7 +299,7 @@ def take_instagram_screenshot(url: str, output_path: Path, *, headless: bool) ->
             capture_locator = wait_for_capture_target(page)
             prepare_capture(page, capture_locator)
 
-            log(f"Chup target: {CAPTURE_XPATH}")
+            # log(f"Chup target: {CAPTURE_XPATH}")
             capture_locator.screenshot(path=str(output_path))
             return output_path
         finally:
@@ -308,7 +308,7 @@ def take_instagram_screenshot(url: str, output_path: Path, *, headless: bool) ->
 
 
 def main() -> int:
-    headless = not browser_can_show_ui()
+    headless = True
     started = time.time()
 
     try:
@@ -321,13 +321,13 @@ def main() -> int:
 
     for index, job in enumerate(filtered_jobs, start=1):
         output_path = make_output_path(job.stt, job.link).resolve()
-        log(
-            f"[{index}/{len(filtered_jobs)}] Dong {job.row_number} | "
-            f"#{job.stt} | {job.link}"
-        )
+        # log(
+        #     f"[{index}/{len(filtered_jobs)}] Dong {job.row_number} | "
+        #     f"#{job.stt} | {job.link}"
+        # )
         try:
             result = take_instagram_screenshot(job.link, output_path, headless=headless)
-            log(f"Da luu anh tai: {result}")
+            # log(f"Da luu anh tai: {result}")
         except Exception as exc:
             print(
                 f"Loi o dong {job.row_number} ({job.link}): {exc}",
@@ -339,7 +339,7 @@ def main() -> int:
             time.sleep(DELAY_BETWEEN_JOBS_SECONDS)
 
     elapsed = time.time() - started
-    log(f"Hoan tat trong {elapsed:.1f}s")
+    # log(f"Hoan tat trong {elapsed:.1f}s")
     return 0
 
 
