@@ -7,3 +7,10 @@ dist/
 *.spec
 *.zip
 build/
+posts/
+comments/
+.codex
+tiktok_shots/
+instagram_shots/
+facebook_shots/
+.vscode/
