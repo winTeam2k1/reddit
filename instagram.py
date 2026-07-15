@@ -321,13 +321,13 @@ def main() -> int:
 
     for index, job in enumerate(filtered_jobs, start=1):
         output_path = make_output_path(job.stt, job.link).resolve()
-        # log(
-        #     f"[{index}/{len(filtered_jobs)}] Dong {job.row_number} | "
-        #     f"#{job.stt} | {job.link}"
-        # )
+        log(
+            f"[{index}/{len(filtered_jobs)}] Dong {job.row_number} | "
+            f"#{job.stt} | {job.link}"
+        )
         try:
             result = take_instagram_screenshot(job.link, output_path, headless=headless)
-            # log(f"Da luu anh tai: {result}")
+            log(f"Da luu anh tai: {result}")
         except Exception as exc:
             print(
                 f"Loi o dong {job.row_number} ({job.link}): {exc}",
@@ -339,7 +339,7 @@ def main() -> int:
             time.sleep(DELAY_BETWEEN_JOBS_SECONDS)
 
     elapsed = time.time() - started
-    # log(f"Hoan tat trong {elapsed:.1f}s")
+    log(f"Hoan tat trong {elapsed:.1f}s")
     return 0
 
 
